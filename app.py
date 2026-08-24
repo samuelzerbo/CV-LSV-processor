@@ -30,6 +30,7 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.properties import CalcProperties
 
 # --------------------------- constants ---------------------------
 
@@ -163,6 +164,7 @@ def _write_inputs_block(ws, ph, ref_offset_v, area_cm2):
 
 def build_cv_excel_bytes(raw_df, table_df, scan_numbers, ph, ref_offset_v, area_cm2) -> bytes:
     wb = Workbook()
+    wb.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, fullPrecision=True)
     ws = wb.active
     ws.title = "CV Data"
 
@@ -212,6 +214,7 @@ def build_cv_excel_bytes(raw_df, table_df, scan_numbers, ph, ref_offset_v, area_
 
 def build_lsv_excel_bytes(raw_df, ph, ref_offset_v, area_cm2) -> bytes:
     wb = Workbook()
+    wb.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, fullPrecision=True)
     ws = wb.active
     ws.title = "LSV Data"
 
@@ -252,23 +255,74 @@ def build_lsv_excel_bytes(raw_df, ph, ref_offset_v, area_cm2) -> bytes:
 
 # --------------------------- Streamlit UI ---------------------------
 
-st.set_page_config(page_title="CV/LSV Data Processor", page_icon="🧪", layout="centered")
+st.set_page_config(page_title="CV/LSV Data Processor", page_icon="🧪", layout="wide")
 
 # ---- Auth gate ----
-if not st.user.is_logged_in:
+try:
+    logged_in = st.user.is_logged_in
+except AttributeError:
     st.title("🧪 CV / LSV Data Processor")
-    st.write("Sign in with your Google account to use this tool.")
-    if st.button("Log in with Google", type="primary"):
-        st.login()
+    st.error(
+        "Google sign-in isn't configured yet on this deployment.\n\n"
+        "If you're the developer: add an `[auth]` block to `.streamlit/secrets.toml` "
+        "(locally) or the app's Secrets panel (on Streamlit Community Cloud). "
+        "See README.md for setup steps."
+    )
     st.stop()
 
-with st.sidebar:
-    st.write(f"Signed in as **{st.user.name}**")
-    st.caption(st.user.email)
-    if st.button("Log out"):
-        st.logout()
+if not logged_in:
+    left, mid, right = st.columns([1, 1.4, 1])
+    with mid:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(
+                "<div style='text-align:center; font-size:56px;'>🧪</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<h2 style='text-align:center; margin-top:0;'>CV / LSV Data Processor</h2>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<p style='text-align:center; color:#666;'>Convert raw voltammetry data to "
+                "RHE potential &amp; current density in a few clicks.</p>",
+                unsafe_allow_html=True,
+            )
+            st.write("")
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c2:
+                if st.button("🔐  Log in with Google", type="primary", use_container_width=True):
+                    st.login()
+            st.markdown(
+                "<div style='text-align:center; font-size:12px; color:#999;'>Your data is "
+                "processed in memory for this session only.</div>",
+                unsafe_allow_html=True,
+            )
+    st.stop()
 
-st.title("🧪 CV / LSV Data Processor")
+# ---- Sidebar ----
+with st.sidebar:
+    st.markdown(
+        f"""
+        <div style="padding:14px; border-radius:10px; background:#F0F7F4; margin-bottom:14px;">
+            <div style="font-size:13px; color:#666;">Signed in as</div>
+            <div style="font-size:16px; font-weight:600;">{st.user.name}</div>
+            <div style="font-size:12px; color:#888;">{st.user.email}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Log out", use_container_width=True):
+        st.logout()
+    st.divider()
+    st.caption("🧪 **CV / LSV Data Processor**")
+    st.caption("Averages CV scans 2-10, or converts a single LSV sweep, to RHE potential and current density -- with live, editable formulas in the output.")
+
+st.markdown(
+    "<h1 style='margin-bottom:0;'>🧪 CV / LSV Data Processor</h1>"
+    "<p style='color:#777; margin-top:4px;'>Upload &rarr; configure &rarr; download</p>",
+    unsafe_allow_html=True,
+)
 
 # reset state if a fresh file is being processed
 if "result_bytes" not in st.session_state:
@@ -276,83 +330,108 @@ if "result_bytes" not in st.session_state:
     st.session_state.result_name = None
 
 if st.session_state.result_bytes is not None:
-    st.success(f"Done! Your file is ready.")
-    st.download_button(
-        "⬇️ Download processed Excel",
-        data=st.session_state.result_bytes,
-        file_name=st.session_state.result_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-    )
-    if st.button("Process another file"):
-        st.session_state.result_bytes = None
-        st.session_state.result_name = None
-        st.rerun()
+    with st.container(border=True):
+        st.success("✅ Done! Your file is ready.")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.download_button(
+                "⬇️ Download processed Excel",
+                data=st.session_state.result_bytes,
+                file_name=st.session_state.result_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+            )
+        with col2:
+            if st.button("🔄 Process another file", use_container_width=True):
+                st.session_state.result_bytes = None
+                st.session_state.result_name = None
+                st.rerun()
     st.stop()
 
-# ---- Step 1: type ----
-st.subheader("1. What type of data is this?")
-kind = st.radio(
-    "Data type",
-    ["CV", "LSV"],
-    horizontal=True,
-    captions=["Multiple scans, averages scans 2-10", "Single sweep"],
-    label_visibility="collapsed",
-)
+col_main, col_side = st.columns([2.3, 1])
+uploaded, df, kind = None, None, None
 
-# ---- Step 2: upload ----
-st.subheader("2. Upload your raw data file")
-uploaded = st.file_uploader("Raw data file", type=["csv", "xlsx", "xls"], label_visibility="collapsed")
+with col_main:
+    with st.container(border=True):
+        st.markdown("##### 1\ufe0f\u20e3 &nbsp; What type of data is this?")
+        kind = st.radio(
+            "Data type",
+            ["CV", "LSV"],
+            horizontal=True,
+            captions=["Multiple scans, averages scans 2-10", "Single sweep"],
+            label_visibility="collapsed",
+        )
 
-if uploaded is None:
-    st.info("Waiting for a file...")
-    st.stop()
+    with st.container(border=True):
+        st.markdown("##### 2\ufe0f\u20e3 &nbsp; Upload your raw data file")
+        uploaded = st.file_uploader("Raw data file", type=["csv", "xlsx", "xls"], label_visibility="collapsed")
 
-try:
-    df = load_raw_data(uploaded)
-except Exception as e:
-    st.error(f"Could not read this file: {e}")
-    st.stop()
+        if uploaded is None:
+            st.info("Waiting for a file...")
+            st.stop()
 
-ok, msg = validate_structure(df, kind)
-if not ok:
-    st.error(msg)
-    st.stop()
+        try:
+            df = load_raw_data(uploaded)
+        except Exception as e:
+            st.error(f"Could not read this file: {e}")
+            st.stop()
 
-st.success(f"'{uploaded.name}' loaded ({len(df)} rows) -- looks like valid {kind} data.")
+        ok, msg = validate_structure(df, kind)
+        if not ok:
+            st.error(msg)
+            st.stop()
 
-# ---- Step 3: RHE formula ----
-st.subheader("3. Reference electrode & pH")
-ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
-choice = st.selectbox("Reference electrode", ref_labels)
-if choice == "Custom offset...":
-    ref_name = "Custom"
-    ref_offset = st.number_input("Custom offset (V vs SHE)", value=0.000, format="%.4f")
-else:
-    ref_name, ref_offset = REF_ELECTRODES[ref_labels.index(choice)]
+        st.success(f"'{uploaded.name}' loaded ({len(df):,} rows) -- looks like valid {kind} data.")
 
-ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
-st.caption(f"E_RHE = E_measured + {ref_offset} + 0.0591 x pH")
-
-# ---- Step 4: area ----
-st.subheader("4. Electrode surface area")
-area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
-
-# ---- Step 5: process ----
-st.subheader("5. Process")
-if st.button("Process file", type="primary"):
-    try:
-        if kind == "CV":
-            table_df, scan_numbers = build_cv_wide_table(df, min_scan=2, max_scan=10, potential_from_scan=2)
-            out_bytes = build_cv_excel_bytes(df, table_df, scan_numbers, ph, ref_offset, area)
-            out_name = "cv_processed.xlsx"
+    with st.container(border=True):
+        st.markdown("##### 3\ufe0f\u20e3 &nbsp; Reference electrode & pH")
+        ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
+        choice = st.selectbox("Reference electrode", ref_labels)
+        if choice == "Custom offset...":
+            ref_name = "Custom"
+            ref_offset = st.number_input("Custom offset (V vs SHE)", value=0.000, format="%.4f")
         else:
-            out_bytes = build_lsv_excel_bytes(df, ph, ref_offset, area)
-            out_name = "lsv_processed.xlsx"
-    except Exception as e:
-        st.error(f"Error processing data: {e}")
-        st.stop()
+            ref_name, ref_offset = REF_ELECTRODES[ref_labels.index(choice)]
 
-    st.session_state.result_bytes = out_bytes
-    st.session_state.result_name = out_name
-    st.rerun()
+        ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
+        st.caption(f"📐 E_RHE = E_measured + {ref_offset} + 0.0591 × pH")
+
+    with st.container(border=True):
+        st.markdown("##### 4\ufe0f\u20e3 &nbsp; Electrode surface area")
+        area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
+
+    with st.container(border=True):
+        st.markdown("##### 5\ufe0f\u20e3 &nbsp; Process")
+        if st.button("⚙️  Process file", type="primary", use_container_width=True):
+            with st.spinner("Processing..."):
+                try:
+                    if kind == "CV":
+                        table_df, scan_numbers = build_cv_wide_table(df, min_scan=2, max_scan=10, potential_from_scan=2)
+                        out_bytes = build_cv_excel_bytes(df, table_df, scan_numbers, ph, ref_offset, area)
+                        out_name = "cv_processed.xlsx"
+                    else:
+                        out_bytes = build_lsv_excel_bytes(df, ph, ref_offset, area)
+                        out_name = "lsv_processed.xlsx"
+                except Exception as e:
+                    st.error(f"Error processing data: {e}")
+                    st.stop()
+
+            st.session_state.result_bytes = out_bytes
+            st.session_state.result_name = out_name
+            st.rerun()
+
+with col_side:
+    st.markdown("##### 📄 File summary")
+    if uploaded is not None and df is not None:
+        with st.container(border=True):
+            st.metric("Rows", f"{len(df):,}")
+            st.metric("Data type", kind)
+            if kind == "CV" and SCAN_COL in df.columns:
+                st.metric("Scans found", df[SCAN_COL].nunique())
+    st.markdown("##### ⚗️ Conversion formulas")
+    with st.container(border=True):
+        st.caption("**RHE potential**")
+        st.markdown("`E_RHE = E + offset + 0.0591·pH`")
+        st.caption("**Current density**")
+        st.markdown("`j = (I × 1000) / area`")
