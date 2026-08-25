@@ -377,6 +377,13 @@ if backend_configured() and not st.session_state.get("login_logged"):
     log_login(st.user.name, st.user.email)
     st.session_state.login_logged = True
 
+# ---- TEMPORARY DEBUG BANNER: shows the real Sheets error, if any, right on
+# the page. Remove this block once login logging is confirmed working. ----
+if backend_configured() and st.session_state.get("_gsheets_last_error"):
+    st.error(f"Google Sheets logging failed: {st.session_state['_gsheets_last_error']}")
+elif not backend_configured():
+    st.info("Debug: gcp_service_account/gsheets secrets not detected -- backend_configured() is False.")
+
 # ---- Sidebar ----
 with st.sidebar:
     st.markdown(
