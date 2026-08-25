@@ -256,9 +256,9 @@ def build_lsv_excel_bytes(raw_df, ph, ref_offset_v, area_cm2) -> bytes:
 
 # --------------------------- Streamlit UI ---------------------------
 
-st.set_page_config(page_title="CV/LSV Data Processor", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="ElectroProcess", page_icon="🧪", layout="wide")
 
-# ---- Background slideshow (blurred, crossfading CV <-> LSV plots) ----
+# ---- Background image (sharp, full opacity) + frosted-glass cards ----
 import base64
 import pathlib
 
@@ -272,6 +272,7 @@ def _img_b64(path):
 
 _CV_B64 = _img_b64("cv_bg.jpg")
 _LSV_B64 = _img_b64("lsv_bg.jpg")
+_LOGO_B64 = _img_b64("logo.png")
 
 if _CV_B64 and _LSV_B64:
     st.markdown(
@@ -290,7 +291,6 @@ if _CV_B64 and _LSV_B64:
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            filter: blur(9px);
             opacity: 0;
             z-index: -1;
             pointer-events: none;
@@ -306,10 +306,18 @@ if _CV_B64 and _LSV_B64:
         }}
         @keyframes bgFade {{
             0%   {{ opacity: 0; }}
-            8%   {{ opacity: 0.30; }}
-            42%  {{ opacity: 0.30; }}
+            8%   {{ opacity: 1; }}
+            42%  {{ opacity: 1; }}
             50%  {{ opacity: 0; }}
             100% {{ opacity: 0; }}
+        }}
+
+        /* Frosted-glass cards: applied only to containers marked via glass_container() */
+        div[data-testid="stElementContainer"]:has(.glass-marker) + div[data-testid="stLayoutWrapper"] div[data-testid="stVerticalBlock"] {{
+            background: rgba(255,255,255,0.72) !important;
+            backdrop-filter: blur(16px) saturate(160%);
+            -webkit-backdrop-filter: blur(16px) saturate(160%);
+            border-radius: 12px !important;
         }}
         </style>
         <div class="bg-slide cv"></div>
@@ -319,10 +327,18 @@ if _CV_B64 and _LSV_B64:
     )
 
 
+def glass_container():
+    """Like st.container(border=True), but with a frosted-glass background
+    so the sharp/vivid page background shows through, blurred, behind the
+    card -- instead of blurring the whole page background uniformly."""
+    st.markdown('<div class="glass-marker"></div>', unsafe_allow_html=True)
+    return st.container(border=True)
+
+
 def render_footer():
     st.markdown(
         "<div style='text-align:center; color:#999; font-size:12px; margin-top:32px;'>"
-        "⚠️ ElectroProcess can make mistakes. Always verify the outputs."
+        "ElectroProcess can make mistakes. Always verify the outputs."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -332,7 +348,7 @@ def render_footer():
 try:
     logged_in = st.user.is_logged_in
 except AttributeError:
-    st.title("🧪 CV / LSV Data Processor")
+    st.title("🧪 ElectroProcess")
     st.error(
         "Google sign-in isn't configured yet on this deployment.\n\n"
         "If you're the developer: add an `[auth]` block to `.streamlit/secrets.toml` "
@@ -345,13 +361,21 @@ if not logged_in:
     left, mid, right = st.columns([1, 1.4, 1])
     with mid:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        with st.container(border=True):
+        with glass_container():
+            if _LOGO_B64:
+                st.markdown(
+                    f"<div style='text-align:center;'>"
+                    f"<img src='data:image/png;base64,{_LOGO_B64}' width='90'>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    "<div style='text-align:center; font-size:56px;'>🧪</div>",
+                    unsafe_allow_html=True,
+                )
             st.markdown(
-                "<div style='text-align:center; font-size:56px;'>🧪</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                "<h2 style='text-align:center; margin-top:0;'>CV / LSV Data Processor</h2>",
+                "<h2 style='text-align:center; margin-top:0;'>ElectroProcess</h2>",
                 unsafe_allow_html=True,
             )
             st.markdown(
@@ -377,15 +401,15 @@ if backend_configured() and not st.session_state.get("login_logged"):
     log_login(st.user.name, st.user.email)
     st.session_state.login_logged = True
 
-# ---- TEMPORARY DEBUG BANNER: shows the real Sheets error, if any, right on
-# the page. Remove this block once login logging is confirmed working. ----
-if backend_configured() and st.session_state.get("_gsheets_last_error"):
-    st.error(f"Google Sheets logging failed: {st.session_state['_gsheets_last_error']}")
-elif not backend_configured():
-    st.info("Debug: gcp_service_account/gsheets secrets not detected -- backend_configured() is False.")
-
 # ---- Sidebar ----
 with st.sidebar:
+    if _LOGO_B64:
+        st.markdown(
+            f"<div style='text-align:center; margin-bottom:10px;'>"
+            f"<img src='data:image/png;base64,{_LOGO_B64}' width='64'>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
     st.markdown(
         f"""
         <div style="padding:14px; border-radius:10px; background:#F0F7F4; margin-bottom:14px;">
@@ -399,11 +423,11 @@ with st.sidebar:
     if st.button("Log out", use_container_width=True):
         st.logout()
     st.divider()
-    st.caption("🧪 **CV / LSV Data Processor**")
+    st.caption("🧪 **ElectroProcess**")
     st.caption("Averages CV scans 2-10, or converts a single LSV sweep, to RHE potential and current density -- with live, editable formulas in the output.")
 
 st.markdown(
-    "<h1 style='margin-bottom:0;'>🧪 CV / LSV Data Processor</h1>"
+    "<h1 style='margin-bottom:0;'>🧪 ElectroProcess</h1>"
     "<p style='color:#777; margin-top:4px;'>Upload &rarr; configure &rarr; download</p>",
     unsafe_allow_html=True,
 )
@@ -414,7 +438,7 @@ if "result_bytes" not in st.session_state:
     st.session_state.result_name = None
 
 if st.session_state.result_bytes is not None:
-    with st.container(border=True):
+    with glass_container():
         st.success("✅ Done! Your file is ready.")
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -439,7 +463,7 @@ uploaded, df, kind = None, None, None
 ready = False  # becomes True once a valid file has been uploaded & validated
 
 with col_main:
-    with st.container(border=True):
+    with glass_container():
         st.markdown("##### 1\ufe0f\u20e3 &nbsp; What type of data is this?")
         kind = st.radio(
             "Data type",
@@ -449,7 +473,7 @@ with col_main:
             label_visibility="collapsed",
         )
 
-    with st.container(border=True):
+    with glass_container():
         st.markdown("##### 2\ufe0f\u20e3 &nbsp; Upload your raw data file")
         uploaded = st.file_uploader("Raw data file", type=["csv", "xlsx", "xls"], label_visibility="collapsed")
 
@@ -471,7 +495,7 @@ with col_main:
                     ready = True
 
     if ready:
-        with st.container(border=True):
+        with glass_container():
             st.markdown("##### 3\ufe0f\u20e3 &nbsp; Reference electrode & pH")
             ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
             choice = st.selectbox("Reference electrode", ref_labels)
@@ -484,11 +508,11 @@ with col_main:
             ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
             st.caption(f"📐 E_RHE = E_measured + {ref_offset} + 0.0591 × pH")
 
-        with st.container(border=True):
+        with glass_container():
             st.markdown("##### 4\ufe0f\u20e3 &nbsp; Electrode surface area")
             area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
 
-        with st.container(border=True):
+        with glass_container():
             st.markdown("##### 5\ufe0f\u20e3 &nbsp; Process")
             if st.button("⚙️  Process file", type="primary", use_container_width=True):
                 with st.spinner("Processing..."):
@@ -512,13 +536,13 @@ with col_main:
 with col_side:
     st.markdown("##### 📄 File summary")
     if uploaded is not None and df is not None:
-        with st.container(border=True):
+        with glass_container():
             st.metric("Rows", f"{len(df):,}")
             st.metric("Data type", kind)
             if kind == "CV" and SCAN_COL in df.columns:
                 st.metric("Scans found", df[SCAN_COL].nunique())
     st.markdown("##### ⚗️ Conversion formulas")
-    with st.container(border=True):
+    with glass_container():
         st.caption("**RHE potential**")
         st.markdown("`E_RHE = E + offset + 0.0591·pH`")
         st.caption("**Current density**")
