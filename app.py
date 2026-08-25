@@ -31,6 +31,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.properties import CalcProperties
+from gsheets_backend import backend_configured, log_login
 
 # --------------------------- constants ---------------------------
 
@@ -257,6 +258,76 @@ def build_lsv_excel_bytes(raw_df, ph, ref_offset_v, area_cm2) -> bytes:
 
 st.set_page_config(page_title="CV/LSV Data Processor", page_icon="🧪", layout="wide")
 
+# ---- Background slideshow (blurred, crossfading CV <-> LSV plots) ----
+import base64
+import pathlib
+
+
+def _img_b64(path):
+    p = pathlib.Path(__file__).parent / path
+    if not p.exists():
+        return None
+    return base64.b64encode(p.read_bytes()).decode()
+
+
+_CV_B64 = _img_b64("cv_bg.jpg")
+_LSV_B64 = _img_b64("lsv_bg.jpg")
+
+if _CV_B64 and _LSV_B64:
+    st.markdown(
+        f"""
+        <style>
+        html, body {{
+            background: transparent !important;
+        }}
+        [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stMain"], .stApp {{
+            background: transparent !important;
+        }}
+        .bg-slide {{
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            filter: blur(9px);
+            opacity: 0;
+            z-index: -1;
+            pointer-events: none;
+            animation: bgFade 14s infinite;
+        }}
+        .bg-slide.cv {{
+            background-image: url("data:image/jpeg;base64,{_CV_B64}");
+            animation-delay: 0s;
+        }}
+        .bg-slide.lsv {{
+            background-image: url("data:image/jpeg;base64,{_LSV_B64}");
+            animation-delay: 7s;
+        }}
+        @keyframes bgFade {{
+            0%   {{ opacity: 0; }}
+            8%   {{ opacity: 0.30; }}
+            42%  {{ opacity: 0.30; }}
+            50%  {{ opacity: 0; }}
+            100% {{ opacity: 0; }}
+        }}
+        </style>
+        <div class="bg-slide cv"></div>
+        <div class="bg-slide lsv"></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_footer():
+    st.markdown(
+        "<div style='text-align:center; color:#999; font-size:12px; margin-top:32px;'>"
+        "⚠️ ElectroProcess can make mistakes. Always verify the outputs."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ---- Auth gate ----
 try:
     logged_in = st.user.is_logged_in
@@ -298,7 +369,13 @@ if not logged_in:
                 "processed in memory for this session only.</div>",
                 unsafe_allow_html=True,
             )
+        render_footer()
     st.stop()
+
+# ---- Log this login once per session (best-effort, never blocks the app) ----
+if backend_configured() and not st.session_state.get("login_logged"):
+    log_login(st.user.name, st.user.email)
+    st.session_state.login_logged = True
 
 # ---- Sidebar ----
 with st.sidebar:
@@ -347,10 +424,12 @@ if st.session_state.result_bytes is not None:
                 st.session_state.result_bytes = None
                 st.session_state.result_name = None
                 st.rerun()
+    render_footer()
     st.stop()
 
 col_main, col_side = st.columns([2.3, 1])
 uploaded, df, kind = None, None, None
+ready = False  # becomes True once a valid file has been uploaded & validated
 
 with col_main:
     with st.container(border=True):
@@ -369,57 +448,59 @@ with col_main:
 
         if uploaded is None:
             st.info("Waiting for a file...")
-            st.stop()
-
-        try:
-            df = load_raw_data(uploaded)
-        except Exception as e:
-            st.error(f"Could not read this file: {e}")
-            st.stop()
-
-        ok, msg = validate_structure(df, kind)
-        if not ok:
-            st.error(msg)
-            st.stop()
-
-        st.success(f"'{uploaded.name}' loaded ({len(df):,} rows) -- looks like valid {kind} data.")
-
-    with st.container(border=True):
-        st.markdown("##### 3\ufe0f\u20e3 &nbsp; Reference electrode & pH")
-        ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
-        choice = st.selectbox("Reference electrode", ref_labels)
-        if choice == "Custom offset...":
-            ref_name = "Custom"
-            ref_offset = st.number_input("Custom offset (V vs SHE)", value=0.000, format="%.4f")
         else:
-            ref_name, ref_offset = REF_ELECTRODES[ref_labels.index(choice)]
+            try:
+                df = load_raw_data(uploaded)
+            except Exception as e:
+                st.error(f"Could not read this file: {e}")
+                df = None
 
-        ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
-        st.caption(f"📐 E_RHE = E_measured + {ref_offset} + 0.0591 × pH")
+            if df is not None:
+                ok, msg = validate_structure(df, kind)
+                if not ok:
+                    st.error(msg)
+                else:
+                    st.success(f"'{uploaded.name}' loaded ({len(df):,} rows) -- looks like valid {kind} data.")
+                    ready = True
 
-    with st.container(border=True):
-        st.markdown("##### 4\ufe0f\u20e3 &nbsp; Electrode surface area")
-        area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
+    if ready:
+        with st.container(border=True):
+            st.markdown("##### 3\ufe0f\u20e3 &nbsp; Reference electrode & pH")
+            ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
+            choice = st.selectbox("Reference electrode", ref_labels)
+            if choice == "Custom offset...":
+                ref_name = "Custom"
+                ref_offset = st.number_input("Custom offset (V vs SHE)", value=0.000, format="%.4f")
+            else:
+                ref_name, ref_offset = REF_ELECTRODES[ref_labels.index(choice)]
 
-    with st.container(border=True):
-        st.markdown("##### 5\ufe0f\u20e3 &nbsp; Process")
-        if st.button("⚙️  Process file", type="primary", use_container_width=True):
-            with st.spinner("Processing..."):
-                try:
-                    if kind == "CV":
-                        table_df, scan_numbers = build_cv_wide_table(df, min_scan=2, max_scan=10, potential_from_scan=2)
-                        out_bytes = build_cv_excel_bytes(df, table_df, scan_numbers, ph, ref_offset, area)
-                        out_name = "cv_processed.xlsx"
-                    else:
-                        out_bytes = build_lsv_excel_bytes(df, ph, ref_offset, area)
-                        out_name = "lsv_processed.xlsx"
-                except Exception as e:
-                    st.error(f"Error processing data: {e}")
-                    st.stop()
+            ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
+            st.caption(f"📐 E_RHE = E_measured + {ref_offset} + 0.0591 × pH")
 
-            st.session_state.result_bytes = out_bytes
-            st.session_state.result_name = out_name
-            st.rerun()
+        with st.container(border=True):
+            st.markdown("##### 4\ufe0f\u20e3 &nbsp; Electrode surface area")
+            area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
+
+        with st.container(border=True):
+            st.markdown("##### 5\ufe0f\u20e3 &nbsp; Process")
+            if st.button("⚙️  Process file", type="primary", use_container_width=True):
+                with st.spinner("Processing..."):
+                    try:
+                        if kind == "CV":
+                            table_df, scan_numbers = build_cv_wide_table(df, min_scan=2, max_scan=10, potential_from_scan=2)
+                            out_bytes = build_cv_excel_bytes(df, table_df, scan_numbers, ph, ref_offset, area)
+                            out_name = "cv_processed.xlsx"
+                        else:
+                            out_bytes = build_lsv_excel_bytes(df, ph, ref_offset, area)
+                            out_name = "lsv_processed.xlsx"
+                    except Exception as e:
+                        st.error(f"Error processing data: {e}")
+                        out_bytes = None
+
+                if out_bytes is not None:
+                    st.session_state.result_bytes = out_bytes
+                    st.session_state.result_name = out_name
+                    st.rerun()
 
 with col_side:
     st.markdown("##### 📄 File summary")
@@ -435,3 +516,5 @@ with col_side:
         st.markdown("`E_RHE = E + offset + 0.0591·pH`")
         st.caption("**Current density**")
         st.markdown("`j = (I × 1000) / area`")
+
+render_footer()
