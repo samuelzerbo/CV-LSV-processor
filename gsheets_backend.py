@@ -47,11 +47,15 @@ def _get_gspread_client():
 
 
 def log_login(name: str, email: str):
-    """Append one row to the Logins tab. Silently no-ops on any failure."""
+    """Append one row to the Logins tab. Silently no-ops on any failure,
+    but stashes the error in session state so the app can optionally
+    surface it for debugging (see app.py)."""
     try:
         gc = _get_gspread_client()
         sh = gc.open_by_key(st.secrets["gsheets"]["spreadsheet_id"])
         ws = sh.worksheet(LOGINS_SHEET)
         ws.append_row([name, email, datetime.datetime.utcnow().isoformat()])
+        st.session_state["_gsheets_last_error"] = None
     except Exception as e:
         print(f"[gsheets_backend] log_login failed: {e}")
+        st.session_state["_gsheets_last_error"] = str(e)
