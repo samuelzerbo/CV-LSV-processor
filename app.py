@@ -258,7 +258,8 @@ def build_lsv_excel_bytes(raw_df, ph, ref_offset_v, area_cm2) -> bytes:
 
 st.set_page_config(page_title="ElectroProcess", page_icon="🧪", layout="wide")
 
-# ---- Background image (sharp, full opacity) + frosted-glass cards ----
+# ---- Background image: whole image blurred uniformly, different opacity
+# per page (40% on login, 60% on the main app after login) ----
 import base64
 import pathlib
 
@@ -274,7 +275,13 @@ _CV_B64 = _img_b64("cv_bg.jpg")
 _LSV_B64 = _img_b64("lsv_bg.jpg")
 _LOGO_B64 = _img_b64("logo.png")
 
-if _CV_B64 and _LSV_B64:
+
+def render_background(opacity: float):
+    """Renders the crossfading, uniformly-blurred CV/LSV background at the
+    given peak opacity (0-1). Call once per page with the opacity that page
+    wants -- login uses a lighter 0.4, the main app after login uses 0.6."""
+    if not (_CV_B64 and _LSV_B64):
+        return
     st.markdown(
         f"""
         <style>
@@ -291,6 +298,7 @@ if _CV_B64 and _LSV_B64:
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
+            filter: blur(10px);
             opacity: 0;
             z-index: -1;
             pointer-events: none;
@@ -306,18 +314,10 @@ if _CV_B64 and _LSV_B64:
         }}
         @keyframes bgFade {{
             0%   {{ opacity: 0; }}
-            8%   {{ opacity: 1; }}
-            42%  {{ opacity: 1; }}
+            8%   {{ opacity: {opacity}; }}
+            42%  {{ opacity: {opacity}; }}
             50%  {{ opacity: 0; }}
             100% {{ opacity: 0; }}
-        }}
-
-        /* Frosted-glass cards: applied only to containers marked via glass_container() */
-        div[data-testid="stElementContainer"]:has(.glass-marker) + div[data-testid="stLayoutWrapper"] div[data-testid="stVerticalBlock"] {{
-            background: rgba(255,255,255,0.72) !important;
-            backdrop-filter: blur(16px) saturate(160%);
-            -webkit-backdrop-filter: blur(16px) saturate(160%);
-            border-radius: 12px !important;
         }}
         </style>
         <div class="bg-slide cv"></div>
@@ -325,14 +325,6 @@ if _CV_B64 and _LSV_B64:
         """,
         unsafe_allow_html=True,
     )
-
-
-def glass_container():
-    """Like st.container(border=True), but with a frosted-glass background
-    so the sharp/vivid page background shows through, blurred, behind the
-    card -- instead of blurring the whole page background uniformly."""
-    st.markdown('<div class="glass-marker"></div>', unsafe_allow_html=True)
-    return st.container(border=True)
 
 
 def render_footer():
@@ -358,10 +350,11 @@ except AttributeError:
     st.stop()
 
 if not logged_in:
+    render_background(0.40)
     left, mid, right = st.columns([1, 1.4, 1])
     with mid:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        with glass_container():
+        with st.container(border=True):
             if _LOGO_B64:
                 st.markdown(
                     f"<div style='text-align:center;'>"
@@ -395,6 +388,8 @@ if not logged_in:
             )
         render_footer()
     st.stop()
+
+render_background(0.60)
 
 # ---- Log this login once per session (best-effort, never blocks the app) ----
 if backend_configured() and not st.session_state.get("login_logged"):
@@ -438,7 +433,7 @@ if "result_bytes" not in st.session_state:
     st.session_state.result_name = None
 
 if st.session_state.result_bytes is not None:
-    with glass_container():
+    with st.container(border=True):
         st.success("✅ Done! Your file is ready.")
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -463,7 +458,7 @@ uploaded, df, kind = None, None, None
 ready = False  # becomes True once a valid file has been uploaded & validated
 
 with col_main:
-    with glass_container():
+    with st.container(border=True):
         st.markdown("##### 1\ufe0f\u20e3 &nbsp; What type of data is this?")
         kind = st.radio(
             "Data type",
@@ -473,7 +468,7 @@ with col_main:
             label_visibility="collapsed",
         )
 
-    with glass_container():
+    with st.container(border=True):
         st.markdown("##### 2\ufe0f\u20e3 &nbsp; Upload your raw data file")
         uploaded = st.file_uploader("Raw data file", type=["csv", "xlsx", "xls"], label_visibility="collapsed")
 
@@ -495,7 +490,7 @@ with col_main:
                     ready = True
 
     if ready:
-        with glass_container():
+        with st.container(border=True):
             st.markdown("##### 3\ufe0f\u20e3 &nbsp; Reference electrode & pH")
             ref_labels = [f"{name} (offset = {offset} V)" for name, offset in REF_ELECTRODES] + ["Custom offset..."]
             choice = st.selectbox("Reference electrode", ref_labels)
@@ -508,11 +503,11 @@ with col_main:
             ph = st.number_input("Electrolyte pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1)
             st.caption(f"📐 E_RHE = E_measured + {ref_offset} + 0.0591 × pH")
 
-        with glass_container():
+        with st.container(border=True):
             st.markdown("##### 4\ufe0f\u20e3 &nbsp; Electrode surface area")
             area = st.number_input("Electrode surface area (cm²)", min_value=0.000001, value=0.070, format="%.4f")
 
-        with glass_container():
+        with st.container(border=True):
             st.markdown("##### 5\ufe0f\u20e3 &nbsp; Process")
             if st.button("⚙️  Process file", type="primary", use_container_width=True):
                 with st.spinner("Processing..."):
@@ -536,13 +531,13 @@ with col_main:
 with col_side:
     st.markdown("##### 📄 File summary")
     if uploaded is not None and df is not None:
-        with glass_container():
+        with st.container(border=True):
             st.metric("Rows", f"{len(df):,}")
             st.metric("Data type", kind)
             if kind == "CV" and SCAN_COL in df.columns:
                 st.metric("Scans found", df[SCAN_COL].nunique())
     st.markdown("##### ⚗️ Conversion formulas")
-    with glass_container():
+    with st.container(border=True):
         st.caption("**RHE potential**")
         st.markdown("`E_RHE = E + offset + 0.0591·pH`")
         st.caption("**Current density**")
